@@ -46,7 +46,14 @@ export function AgentQuickView({ agent, open, onOpenChange }: AgentQuickViewProp
                 <h3 className="text-sm font-medium text-muted-foreground">
                   Agent Prompt
                 </h3>
-                <AgentPromptCard agentPrompt={agent.agentPrompt} showTitle={false} />
+                <AgentPromptCard
+                  agentPrompt={agent.agentPrompt}
+                  showTitle={false}
+                  /* Make preview more compact to avoid pushing CTA */
+                  collapsedLines={4}
+                  longCharThreshold={200}
+                  longLineThreshold={4}
+                />
               </div>
             )}
 

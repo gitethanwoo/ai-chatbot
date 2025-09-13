@@ -15,13 +15,26 @@ import { toast } from 'sonner';
 interface AgentPromptCardProps {
   agentPrompt: string;
   showTitle?: boolean;
+  /** Number of lines to show when collapsed (defaults to 8) */
+  collapsedLines?: number;
+  /** Character length that triggers truncation (defaults to 500) */
+  longCharThreshold?: number;
+  /** Line count that triggers truncation (defaults to 8) */
+  longLineThreshold?: number;
 }
 
-export function AgentPromptCard({ agentPrompt, showTitle = true }: AgentPromptCardProps) {
+export function AgentPromptCard({
+  agentPrompt,
+  showTitle = true,
+  collapsedLines = 8,
+  longCharThreshold = 500,
+  longLineThreshold = 8,
+}: AgentPromptCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const isLong = agentPrompt.length > 500 || agentPrompt.split('\n').length > 8;
+  const totalLines = agentPrompt.split('\n');
+  const isLong = agentPrompt.length > longCharThreshold || totalLines.length > longLineThreshold;
   const displayText = !isExpanded && isLong
-    ? agentPrompt.split('\n').slice(0, 8).join('\n') + (agentPrompt.split('\n').length > 8 ? '\n...' : '...')
+    ? totalLines.slice(0, collapsedLines).join('\n') + (totalLines.length > collapsedLines ? '\n...' : '...')
     : agentPrompt;
 
   const copyToClipboard = async () => {
