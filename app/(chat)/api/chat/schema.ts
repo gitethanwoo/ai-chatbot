@@ -21,6 +21,15 @@ const filePartSchema = z.object({
 
 const partSchema = z.union([textPartSchema, filePartSchema]);
 
+const agentMentionSchema = z.object({
+  slug: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9][\w-]{0,63}$/i),
+  prompt: z.string().max(200000).default(''),
+});
+
 export const postRequestBodySchema = z.object({
   id: z.string().uuid(),
   message: z.object({
@@ -41,6 +50,8 @@ export const postRequestBodySchema = z.object({
     .optional(),
   activeTools: z.array(z.string()).optional(),
   agentVectorStoreId: z.string().min(1).optional(),
+  agentMentions: z.array(agentMentionSchema).optional(),
+  rawInput: z.string().max(200000).optional(),
 });
 
 export type PostRequestBody = z.infer<typeof postRequestBodySchema>;

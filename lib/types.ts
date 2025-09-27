@@ -23,6 +23,11 @@ import type { Suggestion } from './db/schema';
 
 export type DataPart = { type: 'append-message'; message: string };
 
+export type AgentMention = {
+  slug: string;
+  prompt: string;
+};
+
 export const messageMetadataSchema = z.object({
   createdAt: z.string(),
 });
@@ -123,6 +128,12 @@ export type CustomUIDataTypes = {
   clear: null;
   finish: null;
   usage: LanguageModelUsage;
+  agentStatus: {
+    slug: string;
+    status: 'started' | 'finished' | 'error';
+    messageId?: string;
+    agentName?: string;
+  };
 };
 
 export type ChatMessage = UIMessage<

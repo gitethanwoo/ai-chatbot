@@ -12,6 +12,7 @@ import {
   lt,
   or,
   ilike,
+  sql,
   type SQL,
 } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -763,6 +764,70 @@ export async function getAgentBySlug({ slug }: { slug: string }) {
     return row ?? null;
   } catch (error) {
     throw new ChatSDKError('bad_request:database', 'Failed to get agent');
+  }
+}
+
+export async function searchAgentsForUser({
+  userId,
+  query,
+  limit = 8,
+}: {
+  userId: string;
+  query?: string | null;
+  limit?: number;
+}) {
+  try {
+    const normalizedQuery = query?.trim() ?? '';
+
+    const ownedJoin = and(
+      eq(userAgent.agentId, agent.id),
+      eq(userAgent.userId, userId),
+    );
+
+    const accessibleCondition = or(
+      eq(agent.isPublic, true),
+      eq(agent.userId, userId),
+      sql`${userAgent.userId} IS NOT NULL`,
+    );
+
+    const whereClause = normalizedQuery
+      ? and(
+          accessibleCondition,
+          or(
+            ilike(agent.name, `%${normalizedQuery}%`),
+            ilike(agent.description, `%${normalizedQuery}%`),
+            ilike(agent.slug, `%${normalizedQuery}%`),
+          ),
+        )
+      : accessibleCondition;
+
+    const rows = await db
+      .select({
+        agent,
+        owner: user,
+        savedUserId: userAgent.userId,
+      })
+      .from(agent)
+      .leftJoin(userAgent, ownedJoin)
+      .leftJoin(user, eq(agent.userId, user.id))
+      .where(whereClause)
+      .orderBy(
+        desc(sql`CASE WHEN ${agent.userId} = ${userId} THEN 1 ELSE 0 END`),
+        desc(sql`CASE WHEN ${userAgent.userId} IS NOT NULL THEN 1 ELSE 0 END`),
+        desc(agent.createdAt),
+      )
+      .limit(limit);
+
+    return rows.map((row) => ({
+      agent: row.agent as Agent,
+      owner: row.owner as User | null,
+      isSaved: Boolean(row.savedUserId),
+    }));
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to search agents for user',
+    );
   }
 }
 

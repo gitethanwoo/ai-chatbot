@@ -25,6 +25,7 @@ import type { UseChatHelpers } from '@ai-sdk/react';
 import type { ChatMessage } from '@/lib/types';
 import { useDataStream } from './data-stream-provider';
 import { LoadingText } from './elements/loading-text';
+import { parseAgentResponseText } from '@/lib/agents/mentions';
 
 // Type narrowing is handled by TypeScript's control flow analysis
 // The AI SDK provides proper discriminated unions for tool calls
@@ -195,6 +196,41 @@ const PurePreviewMessage = ({
 
                   if (type === 'text') {
                     if (mode === 'view') {
+                      const textValue =
+                        typeof part.text === 'string' ? part.text : '';
+                      const agentResponse =
+                        message.role === 'assistant' && index === 0
+                          ? parseAgentResponseText(textValue)
+                          : null;
+
+                      if (agentResponse) {
+                        return (
+                          <div key={key} className="flex flex-col gap-2">
+                            <div className="flex flex-row items-center gap-2 pl-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+                              <span className="rounded-md bg-muted px-2 py-0.5 font-semibold text-[10px]">
+                                Agent
+                              </span>
+                              <span className="font-medium text-foreground">
+                                @{agentResponse.slug}
+                              </span>
+                              {agentResponse.agentName && (
+                                <span className="text-muted-foreground/70 normal-case">
+                                  {agentResponse.agentName}
+                                </span>
+                              )}
+                            </div>
+                            <MessageContent
+                              data-testid="message-content"
+                              className="justify-start items-start text-left bg-transparent -ml-4"
+                            >
+                              <Response className="[&_[data-streamdown='ordered-list']]:pl-6 [&_[data-streamdown='unordered-list']]:pl-6">
+                                {sanitizeText(agentResponse.body)}
+                              </Response>
+                            </MessageContent>
+                          </div>
+                        );
+                      }
+
                       return (
                         <MessageContent
                           key={key}
@@ -335,3 +371,38 @@ export const ThinkingMessage = () => {
     </motion.div>
   );
 };
+
+export const AgentThinkingMessage = ({
+  slug,
+  agentName,
+}: {
+  slug: string;
+  agentName?: string;
+}) => (
+  <motion.div
+    data-testid={`message-agent-loading-${slug}`}
+    className="w-full group/message"
+    initial={{ y: 5, opacity: 0 }}
+    animate={{ y: 0, opacity: 1, transition: { delay: 0 } }}
+    data-role="assistant"
+  >
+    <div className="flex items-start gap-3 justify-start -ml-3">
+      <div className="flex flex-col gap-2 w-full md:gap-4">
+        <div className="flex flex-row items-center gap-2 pl-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+          <span className="rounded-md bg-muted px-2 py-0.5 font-semibold text-[10px]">
+            Agent
+          </span>
+          <span className="font-medium text-foreground">@{slug}</span>
+          {agentName && (
+            <span className="text-muted-foreground/70 normal-case">
+              {agentName}
+            </span>
+          )}
+        </div>
+        <div className="p-0 text-sm text-muted-foreground">
+          <LoadingText>Waiting for @{slug}...</LoadingText>
+        </div>
+      </div>
+    </div>
+  </motion.div>
+);

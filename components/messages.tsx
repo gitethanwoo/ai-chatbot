@@ -1,6 +1,6 @@
-import { PreviewMessage, ThinkingMessage } from './message';
+import { PreviewMessage, ThinkingMessage, AgentThinkingMessage } from './message';
 import { Greeting } from './greeting';
-import { memo, useEffect } from 'react';
+import { memo, useEffect, useMemo } from 'react';
 import type { Vote } from '@/lib/db/schema';
 import equal from 'fast-deep-equal';
 import type { UseChatHelpers } from '@ai-sdk/react';
@@ -9,6 +9,7 @@ import type { ChatMessage } from '@/lib/types';
 import { useDataStream } from './data-stream-provider';
 import { Conversation, ConversationContent } from './elements/conversation';
 import { ArrowDownIcon } from 'lucide-react';
+import { parseAgentResponseText } from '@/lib/agents/mentions';
 
 interface MessagesProps {
   chatId: string;
@@ -43,8 +44,46 @@ function PureMessages({
     chatId,
     status,
   });
+  const { dataStream } = useDataStream();
 
-  useDataStream();
+  const pendingAgentStatuses = useMemo(() => {
+    const map = new Map<
+      string,
+      { slug: string; agentName?: string; status: string }
+    >();
+
+    dataStream.forEach((part) => {
+      if (part.type === 'data-agent-status') {
+        const payload = part.data as {
+          slug?: string;
+          status?: string;
+          agentName?: string;
+        };
+        if (payload?.slug && payload.status) {
+          map.set(payload.slug.toLowerCase(), {
+            slug: payload.slug,
+            agentName: payload.agentName,
+            status: payload.status,
+          });
+        }
+      }
+    });
+
+    messages.forEach((message) => {
+      if (message.role !== 'assistant') return;
+      const firstTextPart = message.parts.find((part) => part.type === 'text');
+      const textValue =
+        firstTextPart && typeof (firstTextPart as any).text === 'string'
+          ? ((firstTextPart as any).text as string)
+          : '';
+      const parsed = parseAgentResponseText(textValue);
+      if (parsed) {
+        map.delete(parsed.slug.toLowerCase());
+      }
+    });
+
+    return Array.from(map.values()).filter((entry) => entry.status === 'started');
+  }, [dataStream, messages]);
 
   useEffect(() => {
     if (status === 'submitted') {
@@ -90,6 +129,14 @@ function PureMessages({
                 hasSentMessage && index === messages.length - 1
               }
               isArtifactVisible={isArtifactVisible}
+            />
+          ))}
+
+          {pendingAgentStatuses.map((statusEntry) => (
+            <AgentThinkingMessage
+              key={`agent-pending-${statusEntry.slug}`}
+              slug={statusEntry.slug}
+              agentName={statusEntry.agentName}
             />
           ))}
 

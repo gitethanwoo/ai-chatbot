@@ -50,6 +50,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  extractAgentMentions,
+  stripAgentDirectiveText,
+} from '@/lib/agents/mentions';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import {
   DEFAULT_ACTIVE_TOOL_IDS,
@@ -111,6 +115,16 @@ function PureMultimodalInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
 
+  type AgentSuggestion = {
+    id: string;
+    slug: string;
+    name: string;
+    description: string | null;
+    isPublic: boolean;
+    isOwned: boolean;
+    vectorStoreId: string | null;
+  };
+
   useEffect(() => {
     if (textareaRef.current) {
       adjustHeight();
@@ -153,8 +167,10 @@ function PureMultimodalInput({
   // (Removed Google Docs picker state)
 
   const handleInput = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(event.target.value);
+    const value = event.target.value;
+    setInput(value);
     adjustHeight();
+    updateMentionCandidate(value, event.target.selectionStart ?? value.length);
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -168,35 +184,151 @@ function PureMultimodalInput({
   const pdfUploadsDisabled =
     selectedChatModel?.id === 'chat-model-grok-4-fast-reasoning';
 
+  const [mentionState, setMentionState] = useState<
+    | {
+        start: number;
+        end: number;
+        query: string;
+      }
+    | null
+  >(null);
+  const [mentionResults, setMentionResults] = useState<AgentSuggestion[]>([]);
+  const [mentionLoading, setMentionLoading] = useState(false);
+  const [mentionHighlightIndex, setMentionHighlightIndex] = useState(0);
+  const mentionAbortController = useRef<AbortController | null>(null);
+
+  const resetMentionState = useCallback(() => {
+    mentionAbortController.current?.abort();
+    mentionAbortController.current = null;
+    setMentionState(null);
+    setMentionResults([]);
+    setMentionLoading(false);
+    setMentionHighlightIndex(0);
+  }, []);
+
+  const updateMentionCandidate = useCallback(
+    (value: string, cursorPosition: number | null) => {
+      if (cursorPosition === null) {
+        resetMentionState();
+        return;
+      }
+
+      const beforeCursor = value.slice(0, cursorPosition);
+      const atIndex = beforeCursor.lastIndexOf('@');
+
+      if (atIndex === -1) {
+        resetMentionState();
+        return;
+      }
+
+      if (atIndex > 0) {
+        const charBefore = beforeCursor[atIndex - 1];
+        if (!/[\s\n\r\t,.;!?]/.test(charBefore)) {
+          resetMentionState();
+          return;
+        }
+      }
+
+      const mentionBody = beforeCursor.slice(atIndex + 1);
+
+      if (!/^[A-Za-z0-9_-]*$/.test(mentionBody) || mentionBody.length > 64) {
+        resetMentionState();
+        return;
+      }
+
+      const nextState = {
+        start: atIndex,
+        end: cursorPosition,
+        query: mentionBody.toLowerCase(),
+      } as const;
+
+      setMentionState((prev) => {
+        if (
+          prev &&
+          prev.start === nextState.start &&
+          prev.end === nextState.end &&
+          prev.query === nextState.query
+        ) {
+          return prev;
+        }
+        return nextState;
+      });
+    },
+    [resetMentionState],
+  );
+
+  const applyMentionSuggestion = useCallback(
+    (suggestion: AgentSuggestion) => {
+      if (!mentionState) return;
+
+      const before = input.slice(0, mentionState.start);
+      const after = input.slice(mentionState.end);
+      const slugInsertion = `@${suggestion.slug}`;
+      const needsTrailingSpace = after.startsWith(' ') || after.length === 0 ? '' : ' ';
+      const nextValue = `${before}${slugInsertion}${needsTrailingSpace}${after}`;
+
+      setInput(nextValue);
+
+      resetMentionState();
+
+      requestAnimationFrame(() => {
+        const focusTarget = textareaRef.current;
+        if (!focusTarget) return;
+        const cursor = before.length + slugInsertion.length + needsTrailingSpace.length;
+        focusTarget.focus();
+        focusTarget.setSelectionRange(cursor, cursor);
+      });
+    },
+    [input, mentionState, resetMentionState, setInput],
+  );
+
   const submitForm = useCallback(() => {
     if (!disableHistoryUpdate) {
       window.history.replaceState({}, '', `/chat/${chatId}`);
     }
 
     // Prepare the text content
-    const textContent = input;
+    const agentMentions = extractAgentMentions(input);
+    let sanitizedText = agentMentions.length
+      ? stripAgentDirectiveText(input, agentMentions)
+      : input;
 
-    sendMessage({
-      role: 'user',
-      parts: [
-        ...attachments.map((attachment) => ({
-          type: 'file' as const,
-          url: attachment.url,
-          name: attachment.name,
-          mediaType: attachment.contentType,
-        })),
-        {
-          type: 'text',
-          text: textContent,
-        },
-      ],
-    });
+    if (!sanitizedText?.trim()) {
+      sanitizedText = input;
+    }
+
+    sendMessage(
+      {
+        role: 'user',
+        parts: [
+          ...attachments.map((attachment) => ({
+            type: 'file' as const,
+            url: attachment.url,
+            name: attachment.name,
+            mediaType: attachment.contentType,
+          })),
+          {
+            type: 'text',
+            text: sanitizedText,
+          },
+        ],
+      },
+      agentMentions.length
+        ? {
+            body: {
+              agentMentions,
+              rawInput: input,
+            },
+          }
+        : undefined,
+    );
 
     setAttachments([]);
     // (Removed selectedDocument handling)
     setLocalStorageInput('');
     resetHeight();
     setInput('');
+    resetMentionState();
 
     if (width && width > 768) {
       textareaRef.current?.focus();
@@ -211,8 +343,121 @@ function PureMultimodalInput({
     width,
     chatId,
     disableHistoryUpdate,
+    resetMentionState,
     // (Removed selectedDocument dependency)
   ]);
+
+  const handleMentionKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (!mentionState) {
+        if (event.key === 'Escape') {
+          resetMentionState();
+        }
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        resetMentionState();
+        return;
+      }
+
+      if (mentionLoading && mentionResults.length === 0) {
+        return;
+      }
+
+      if (event.key === 'ArrowDown' || event.key === 'Tab') {
+        if (mentionResults.length === 0) return;
+        event.preventDefault();
+        setMentionHighlightIndex((current) =>
+          (current + 1) % mentionResults.length,
+        );
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        if (mentionResults.length === 0) return;
+        event.preventDefault();
+        setMentionHighlightIndex((current) =>
+          (current - 1 + mentionResults.length) % mentionResults.length,
+        );
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        if (mentionResults.length === 0) return;
+        event.preventDefault();
+        applyMentionSuggestion(mentionResults[mentionHighlightIndex]);
+      }
+    },
+    [
+      mentionState,
+      mentionLoading,
+      mentionResults,
+      mentionHighlightIndex,
+      applyMentionSuggestion,
+      resetMentionState,
+    ],
+  );
+
+  useEffect(() => {
+    if (!mentionState) {
+      return;
+    }
+
+    const controller = new AbortController();
+    mentionAbortController.current?.abort();
+    mentionAbortController.current = controller;
+    setMentionLoading(true);
+
+    const params = new URLSearchParams();
+    if (mentionState.query) {
+      params.set('q', mentionState.query);
+    }
+    params.set('limit', '8');
+
+    fetch(`/api/agents/search?${params.toString()}`, {
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('Failed to search agents');
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (!data) return;
+        const suggestions: AgentSuggestion[] = Array.isArray(data.agents)
+          ? data.agents
+          : [];
+        setMentionResults(suggestions);
+        setMentionHighlightIndex(0);
+        setMentionLoading(false);
+      })
+      .catch((error) => {
+        if ((error as any)?.name === 'AbortError') {
+          return;
+        }
+        console.error('Agent mention search failed', error);
+        setMentionResults([]);
+        setMentionLoading(false);
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [mentionState]);
+
+  useEffect(() => {
+    if (mentionResults.length === 0) {
+      setMentionHighlightIndex(0);
+      return;
+    }
+
+    if (mentionHighlightIndex >= mentionResults.length) {
+      setMentionHighlightIndex(0);
+    }
+  }, [mentionResults, mentionHighlightIndex]);
 
   const uploadFile = async (file: File) => {
     const formData = new FormData();
@@ -393,17 +638,18 @@ function PureMultimodalInput({
         tabIndex={-1}
       />
 
-      <PromptInput
-        className="rounded-xl border shadow-sm transition-all duration-200 bg-background border-border focus-within:border-border hover:border-muted-foreground/50"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (status !== 'ready') {
-            toast.error('Please wait for the model to finish its response!');
-          } else {
-            submitForm();
-          }
-        }}
-      >
+      <div className="relative">
+        <PromptInput
+          className="rounded-xl border shadow-sm transition-all duration-200 bg-background border-border focus-within:border-border hover:border-muted-foreground/50"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (status !== 'ready') {
+              toast.error('Please wait for the model to finish its response!');
+            } else {
+              submitForm();
+            }
+          }}
+        >
         {(attachments.length > 0 || uploadQueue.length > 0) && (
           <div
             data-testid="attachments-preview"
@@ -444,6 +690,7 @@ function PureMultimodalInput({
             placeholder="Send a message..."
             value={input}
             onChange={handleInput}
+            onKeyDown={handleMentionKeyDown}
             minHeight={44}
             maxHeight={200}
             disableAutoResize={true}
@@ -483,7 +730,61 @@ function PureMultimodalInput({
             </PromptInputSubmit>
           )}
         </PromptInputToolbar>
-      </PromptInput>
+        </PromptInput>
+
+        {mentionState && (
+          <div className="absolute bottom-full inset-x-0 mb-2 z-30">
+            <div className="overflow-hidden rounded-lg border bg-popover shadow-xl">
+              {mentionLoading ? (
+                <div className="px-3 py-2 text-sm text-muted-foreground">
+                  Searching agents…
+                </div>
+              ) : mentionResults.length === 0 ? (
+                <div className="px-3 py-2 text-sm text-muted-foreground">
+                  No matching agents.
+                </div>
+              ) : (
+                <div className="max-h-64 overflow-y-auto">
+                  {mentionResults.map((suggestion, index) => (
+                    <button
+                      type="button"
+                      key={suggestion.id}
+                      className={cn(
+                        'w-full px-3 py-2 text-left text-sm transition-colors flex flex-col gap-1',
+                        index === mentionHighlightIndex
+                          ? 'bg-muted'
+                          : 'hover:bg-muted/70',
+                      )}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setMentionHighlightIndex(index)}
+                      onClick={() => applyMentionSuggestion(suggestion)}
+                    >
+                      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                        <span>@{suggestion.slug}</span>
+                        {suggestion.isOwned ? (
+                          <span className="text-xs text-muted-foreground">Yours</span>
+                        ) : !suggestion.isPublic ? (
+                          <span className="text-xs text-muted-foreground">Private</span>
+                        ) : null}
+                      </div>
+                      {suggestion.name && suggestion.name !== suggestion.slug && (
+                        <div className="text-xs text-muted-foreground">
+                          {suggestion.name}
+                        </div>
+                      )}
+                      {suggestion.description && (
+                        <div className="text-xs text-muted-foreground leading-snug line-clamp-2">
+                          {suggestion.description}
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

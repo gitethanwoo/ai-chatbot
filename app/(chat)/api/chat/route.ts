@@ -1,6 +1,7 @@
 import {
   convertToModelMessages,
   createUIMessageStream,
+  generateText,
   JsonToSseTransformStream,
   type LanguageModelUsage,
   smoothStream,
@@ -25,9 +26,11 @@ import {
   saveMessages,
   updateChatLastContextById,
   getAgentWithUserState,
+  getAgentBySlug,
   getVectorStoreFilesByUser,
 } from '@/lib/db/queries';
-import { convertToUIMessages, generateUUID } from '@/lib/utils';
+import { convertToUIMessages, generateUUID, getTextFromMessage } from '@/lib/utils';
+import type { DBMessage } from '@/lib/db/schema';
 import { generateTitleFromUserMessage } from '../../actions';
 import { requestSuggestions } from '@/lib/ai/tools/request-suggestions';
 import { searchTranscriptsByKeyword } from '@/lib/ai/tools/search-transcripts-by-keyword';
@@ -57,7 +60,7 @@ import {
 } from 'resumable-stream';
 import { after } from 'next/server';
 import { ChatSDKError } from '@/lib/errors';
-import type { ChatMessage } from '@/lib/types';
+import type { AgentMention, ChatMessage } from '@/lib/types';
 import type { VisibilityType } from '@/components/visibility-selector';
 import { openai, type OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
 import type { SharedV2ProviderOptions } from '@ai-sdk/provider';
@@ -84,6 +87,97 @@ export function getStreamContext() {
   }
 
   return globalStreamContext;
+}
+
+function createToolRegistry({
+  dataStream,
+  aiToolsSession,
+  userId,
+  vectorStoreId,
+  providerNamespace,
+  includeTranscriptDetails,
+}: {
+  dataStream: any;
+  aiToolsSession: any;
+  userId: string;
+  vectorStoreId?: string;
+  providerNamespace: string;
+  includeTranscriptDetails: boolean;
+}) {
+  const tools: Record<string, any> = {
+    requestSuggestions: requestSuggestions({
+      session: aiToolsSession,
+      dataStream,
+    }),
+    searchTranscriptsByKeyword: searchTranscriptsByKeyword({
+      session: aiToolsSession,
+      dataStream,
+    }),
+    searchTranscriptsByUser: searchTranscriptsByUser({
+      session: aiToolsSession,
+      dataStream,
+    }),
+    listAccessibleSlackChannels: listAccessibleSlackChannels({
+      session: aiToolsSession,
+      dataStream,
+    }),
+    fetchSlackChannelHistory: fetchSlackChannelHistory({
+      session: aiToolsSession,
+      dataStream,
+    }),
+    getSlackThreadReplies: getSlackThreadReplies({
+      session: aiToolsSession,
+      dataStream,
+    }),
+    getBulkSlackHistory: getBulkSlackHistory({
+      session: aiToolsSession,
+      dataStream,
+    }),
+    listGoogleCalendarEvents: listGoogleCalendarEvents({
+      session: aiToolsSession,
+      dataStream,
+    }),
+    listGmailMessages: listGmailMessages({
+      session: aiToolsSession,
+      dataStream,
+    }),
+    getGmailMessageDetails: getGmailMessageDetails({
+      session: aiToolsSession,
+      dataStream,
+    }),
+  };
+
+  const nonConfigurableToolIds = new Set<string>();
+  let fileSearchRegistered = false;
+
+  if (providerNamespace === 'openai' && vectorStoreId) {
+    tools.file_search = openai.tools.fileSearch({
+      vectorStoreIds: [vectorStoreId],
+    });
+    fileSearchRegistered = true;
+  }
+
+  tools.get_file_contents = getFileContents({
+    session: aiToolsSession,
+    userId,
+    vectorStoreId: vectorStoreId ?? '',
+  });
+
+  if (vectorStoreId) {
+    nonConfigurableToolIds.add('get_file_contents');
+    if (fileSearchRegistered) {
+      nonConfigurableToolIds.add('file_search');
+    }
+  }
+
+  if (includeTranscriptDetails) {
+    tools.getTranscriptDetails = getTranscriptDetails({
+      session: aiToolsSession,
+      dataStream,
+    });
+  }
+
+  return { tools, nonConfigurableToolIds, fileSearchRegistered };
 }
 
 export async function POST(request: Request) {
@@ -131,6 +225,8 @@ export async function POST(request: Request) {
       agentContext: previewAgentContext,
       activeTools: requestedActiveTools,
       agentVectorStoreId,
+      agentMentions,
+      rawInput,
     }: {
       id: string;
       message: ChatMessage;
@@ -145,6 +241,8 @@ export async function POST(request: Request) {
       };
       activeTools?: Array<string>;
       agentVectorStoreId?: string;
+      agentMentions?: Array<AgentMention>;
+      rawInput?: string;
     } = requestBody;
 
     const session = await withAuth();
@@ -222,8 +320,28 @@ export async function POST(request: Request) {
       }
     }
 
+    const normalizedAgentMentions = Array.isArray(agentMentions)
+      ? agentMentions
+          .map((mention) => ({
+            slug: mention.slug.toLowerCase(),
+            prompt: mention.prompt ?? '',
+          }))
+          .filter((mention) => mention.slug.length > 0)
+      : [];
+
     const messagesFromDb = await getMessagesByChatId({ id });
     const uiMessages = [...convertToUIMessages(messagesFromDb), message];
+
+    const latestUserText = getTextFromMessage(message);
+    const reconstructedUserInput = rawInput
+      ? rawInput
+      : [latestUserText, ...normalizedAgentMentions.map((mention) =>
+            mention.prompt
+              ? `Instruction for @${mention.slug}: ${mention.prompt}`
+              : `Reference to @${mention.slug}`,
+          )]
+          .filter(Boolean)
+          .join(`\n\n`);
 
     const { longitude, latitude, city, country } = geolocation(request);
 
@@ -301,97 +419,57 @@ export async function POST(request: Request) {
 
     const stream = createUIMessageStream({
       execute: async ({ writer: dataStream }) => {
-        // Build your tool set (the same set you pass to streamText)
-        const tools: Record<string, any> = {
-          requestSuggestions: requestSuggestions({
-            session: aiToolsSession,
-            dataStream,
-          }),
-          searchTranscriptsByKeyword: searchTranscriptsByKeyword({
-            session: aiToolsSession,
-            dataStream,
-          }),
-          searchTranscriptsByUser: searchTranscriptsByUser({
-            session: aiToolsSession,
-            dataStream,
-          }),
-          listAccessibleSlackChannels: listAccessibleSlackChannels({
-            session: aiToolsSession,
-            dataStream,
-          }),
-          fetchSlackChannelHistory: fetchSlackChannelHistory({
-            session: aiToolsSession,
-            dataStream,
-          }),
-          getSlackThreadReplies: getSlackThreadReplies({
-            session: aiToolsSession,
-            dataStream,
-          }),
-          getBulkSlackHistory: getBulkSlackHistory({
-            session: aiToolsSession,
-            dataStream,
-          }),
-          listGoogleCalendarEvents: listGoogleCalendarEvents({
-            session: aiToolsSession,
-            dataStream,
-          }),
-          listGmailMessages: listGmailMessages({
-            session: aiToolsSession,
-            dataStream,
-          }),
-          getGmailMessageDetails: getGmailMessageDetails({
-            session: aiToolsSession,
-            dataStream,
-          }),
-        };
-
-        const nonConfigurableToolIds = new Set<string>();
-        let fileSearchRegistered = false;
-
-        // Always register file_search + get_file_contents schemas so
-        // validateUIMessages can handle prior tool parts in history.
-        if (isOpenAIModel) {
-          tools.file_search = openai.tools.fileSearch(
-            resolvedVectorStoreId
-              ? { vectorStoreIds: [resolvedVectorStoreId] }
-              : { vectorStoreIds: [] },
+        const includeTranscriptDetails = !isMemberRole;
+        if (includeTranscriptDetails) {
+          console.log(
+            `✅ Adding getTranscriptDetails tool for elevated role: ${session.role} (${session.user.email})`,
           );
-          fileSearchRegistered = true;
+        } else {
+          console.log(
+            `🚫 Excluding getTranscriptDetails tool for member role: ${session.user.email}`,
+          );
         }
-        tools.get_file_contents = getFileContents({
-          session: aiToolsSession,
-          userId: databaseUser.id,
-          // Empty string ensures execute() gracefully reports missing store
-          vectorStoreId: resolvedVectorStoreId ?? '',
-        });
+
+        const { tools, nonConfigurableToolIds, fileSearchRegistered } =
+          createToolRegistry({
+            dataStream,
+            aiToolsSession,
+            userId: databaseUser.id,
+            vectorStoreId: resolvedVectorStoreId ?? undefined,
+            providerNamespace,
+            includeTranscriptDetails,
+          });
 
         if (resolvedVectorStoreId) {
           if (fileSearchRegistered) {
             console.log(
               `🗂️ Enabling file_search tool for vector store ${resolvedVectorStoreId}`,
             );
-            nonConfigurableToolIds.add('file_search');
           } else if (isXaiModel) {
             console.log(
               `🤖 Skipping OpenAI file_search tool for ${providerModelId}; using get_file_contents fallback only.`,
             );
           }
-          nonConfigurableToolIds.add('get_file_contents');
         }
 
-        // Add transcript details tool only for elevated roles (not members)
-        if (!isMemberRole) {
-          console.log(
-            `✅ Adding getTranscriptDetails tool for elevated role: ${session.role} (${session.user.email})`,
-          );
-          tools.getTranscriptDetails = getTranscriptDetails({
-            session: aiToolsSession,
-            dataStream,
+        if (normalizedAgentMentions.length > 0) {
+          const agentMessages = await handleAgentMentions({
+            mentions: normalizedAgentMentions,
+            chatId: id,
+            userId: databaseUser.id,
+            writer: dataStream,
+            defaultModelId: selectedChatModelId,
+            userMessage: reconstructedUserInput,
+            requestHints,
+            aiToolsSession,
+            isMemberRole,
+            requestedActiveTools,
+            reasoningEffort,
           });
-        } else {
-          console.log(
-            `🚫 Excluding getTranscriptDetails tool for member role: ${session.user.email}`,
-          );
+
+          if (agentMessages.length > 0) {
+            uiMessages.push(...agentMessages);
+          }
         }
 
         // 1) Validate the full UI history against your tool schemas
@@ -596,6 +674,283 @@ export async function POST(request: Request) {
     }
     return new ChatSDKError('offline:chat').toResponse();
   }
+}
+
+async function handleAgentMentions({
+  mentions,
+  chatId,
+  userId,
+  writer,
+  defaultModelId,
+  userMessage,
+  requestHints,
+  aiToolsSession,
+  isMemberRole,
+  requestedActiveTools,
+  reasoningEffort,
+}: {
+  mentions: Array<AgentMention>;
+  chatId: string;
+  userId: string;
+  writer: {
+    write: (chunk: {
+      type: string;
+      data: unknown;
+      transient?: boolean;
+    }) => void;
+  };
+  defaultModelId: string;
+  userMessage: string;
+  requestHints: RequestHints;
+  aiToolsSession: any;
+  isMemberRole: boolean;
+  requestedActiveTools?: Array<string>;
+  reasoningEffort: 'low' | 'medium' | 'high';
+}): Promise<Array<ChatMessage>> {
+  if (!mentions.length) {
+    return [];
+  }
+
+  const agentMessages: Array<ChatMessage> = [];
+  const dbMessages: Array<DBMessage> = [];
+
+  for (const mention of mentions) {
+    const slug = mention.slug;
+    const mentionPrompt = mention.prompt?.trim() ?? '';
+    const now = new Date();
+    const uiMessageId = generateUUID();
+
+    let responseHeader = `@${slug}`;
+    let responseBody = '';
+    let agentName: string | undefined;
+    let status: 'finished' | 'error' = 'finished';
+
+    writer.write({
+      type: 'data-agent-status',
+      data: { slug, status: 'started' },
+      transient: true,
+    });
+
+    try {
+      const agentRecord = await getAgentBySlug({ slug });
+
+      if (!agentRecord) {
+        responseBody = `No agent named @${slug} is available.`;
+      } else if (!agentRecord.isPublic && agentRecord.userId !== userId) {
+        responseBody = `You do not have access to @${slug}. Ask the owner to make it public or share it with you.`;
+      } else {
+        agentName = agentRecord.name;
+        responseHeader = `@${slug}${agentRecord.name ? ` (${agentRecord.name})` : ''}`;
+
+        const resolvedModelId =
+          getChatModelById(agentRecord.modelId ?? '')?.id ?? defaultModelId;
+        const providerModelId = resolveProviderModelId(resolvedModelId);
+        const [providerNamespace] = providerModelId.split('/');
+
+        let knowledgeFiles: Array<{
+          id: string;
+          name: string;
+          sizeBytes?: number | null;
+        }> = [];
+
+        const agentVectorStoreId =
+          agentRecord.vectorStoreId && agentRecord.userId === userId
+            ? agentRecord.vectorStoreId
+            : undefined;
+
+        if (agentVectorStoreId) {
+          try {
+            const files = await getVectorStoreFilesByUser({
+              userId,
+              vectorStoreId: agentVectorStoreId,
+            });
+
+            knowledgeFiles = files.map((file) => ({
+              id: file.vectorStoreFileId,
+              name: file.fileName,
+              sizeBytes: file.fileSizeBytes ?? null,
+            }));
+          } catch (error) {
+            console.warn('Unable to load vector store files for agent mention', {
+              slug,
+              userId,
+              error,
+            });
+          }
+        }
+
+        const agentSystemPrompt = systemPrompt({
+          selectedChatModel: resolvedModelId,
+          requestHints,
+          agentContext: {
+            agentPrompt: agentRecord.agentPrompt ?? '',
+            agentName: agentRecord.name,
+            knowledgeFiles,
+          },
+        });
+
+        const { tools: agentTools, nonConfigurableToolIds } = createToolRegistry({
+          dataStream: writer,
+          aiToolsSession,
+          userId,
+          vectorStoreId: agentVectorStoreId,
+          providerNamespace,
+          includeTranscriptDetails: !isMemberRole,
+        });
+
+        const availableToolIds = Object.keys(agentTools);
+        const requestedToolSet = new Set(
+          requestedActiveTools && requestedActiveTools.length > 0
+            ? requestedActiveTools
+            : availableToolIds,
+        );
+
+        let activeToolsForAgent = availableToolIds.filter(
+          (toolId) =>
+            requestedToolSet.has(toolId) || nonConfigurableToolIds.has(toolId),
+        );
+
+        if (activeToolsForAgent.length === 0) {
+          activeToolsForAgent = availableToolIds;
+        }
+
+        const providerOptions: SharedV2ProviderOptions = {};
+
+        if (providerNamespace === 'openai') {
+          const openAIOptions: OpenAIResponsesProviderOptions = {
+            reasoningEffort,
+            reasoningSummary: 'auto',
+            include: [
+              'reasoning.encrypted_content',
+              'file_search_call.results',
+            ],
+          };
+          providerOptions.openai =
+            openAIOptions as SharedV2ProviderOptions[string];
+        }
+
+        if (providerNamespace === 'xai') {
+          providerOptions.xai = {
+            searchParameters: {
+              mode: 'auto',
+              returnCitations: true,
+              maxSearchResults: 12,
+            },
+          } satisfies SharedV2ProviderOptions[string];
+        }
+
+        const resolvedProviderOptions =
+          Object.keys(providerOptions).length > 0 ? providerOptions : undefined;
+
+        const instruction = buildAgentInstruction({
+          userMessage,
+          mentionPrompt,
+          slug,
+        });
+
+        const { text } = await generateText({
+          model: myProvider.languageModel(resolvedModelId),
+          system: agentSystemPrompt,
+          prompt: instruction,
+          tools: agentTools,
+          activeTools: activeToolsForAgent as Array<keyof typeof agentTools>,
+          stopWhen: stepCountIs(20),
+          providerOptions: resolvedProviderOptions,
+        });
+
+        responseBody = text.trim().length > 0 ? text.trim() : 'No response generated.';
+      }
+    } catch (error) {
+      console.error('Failed to run agent mention', {
+        chatId,
+        slug,
+        error,
+      });
+      responseBody = `Encountered an error while running @${slug}.`;
+      status = 'error';
+    }
+
+    const textContent = `### Response from ${responseHeader}
+
+${responseBody}`;
+
+    const uiMessage: ChatMessage = {
+      id: uiMessageId,
+      role: 'assistant',
+      parts: [
+        {
+          type: 'text',
+          text: textContent,
+        },
+      ],
+      metadata: {
+        createdAt: now.toISOString(),
+      },
+    };
+
+    agentMessages.push(uiMessage);
+    dbMessages.push({
+      id: uiMessageId,
+      chatId,
+      role: 'assistant',
+      parts: uiMessage.parts,
+      attachments: [],
+      createdAt: now,
+    });
+
+    writer.write({
+      type: 'data-appendMessage',
+      data: JSON.stringify(uiMessage),
+    });
+
+    writer.write({
+      type: 'data-agent-status',
+      data: {
+        slug,
+        status,
+        messageId: uiMessageId,
+        agentName,
+      },
+      transient: true,
+    });
+  }
+
+  if (dbMessages.length > 0) {
+    await saveMessages({ messages: dbMessages });
+  }
+
+  return agentMessages;
+}
+
+function buildAgentInstruction({
+  userMessage,
+  mentionPrompt,
+  slug,
+}: {
+  userMessage: string;
+  mentionPrompt: string;
+  slug: string;
+}) {
+  const trimmedPrompt = mentionPrompt.trim();
+  const segments: string[] = [];
+
+  if (userMessage.trim().length > 0) {
+    segments.push(`Full user message:
+${userMessage.trim()}`);
+  }
+
+  if (trimmedPrompt.length > 0) {
+    segments.push(`Focus on the instruction provided after @${slug}:
+${trimmedPrompt}`);
+  } else {
+    segments.push(
+      `The user referenced @${slug} without additional instructions. Provide a concise, helpful response based on the overall conversation context.`,
+    );
+  }
+
+  return segments.join(`
+
+`);
 }
 
 export async function DELETE(request: Request) {
