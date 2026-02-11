@@ -26,6 +26,9 @@ export async function createAuthenticatedContext({
   name: string;
   chatModel?: 'chat-model';
 }): Promise<UserContext> {
+  const port = process.env.PORT ?? '3000';
+  const baseUrl = `http://localhost:${port}`;
+
   const directory = path.join(__dirname, '../playwright/.sessions');
 
   if (!fs.existsSync(directory)) {
@@ -40,7 +43,7 @@ export async function createAuthenticatedContext({
   const email = `test-${name}@playwright.com`;
   const password = generateId();
 
-  await page.goto('http://localhost:3000/register');
+  await page.goto(`${baseUrl}/register`);
   await page.getByPlaceholder('user@acme.com').click();
   await page.getByPlaceholder('user@acme.com').fill(email);
   await page.getByLabel('Password').click();

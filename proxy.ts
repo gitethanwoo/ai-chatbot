@@ -62,6 +62,19 @@ const isUnauthenticatedPath = (pathname: string, allowlist: string[]) =>
   allowlist.some((pattern) => matchesPathPattern(pathname, pattern));
 
 export default async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Keep Playwright/webServer readiness independent from AuthKit.
+  if (pathname === '/ping') {
+    return new Response('ok', {
+      status: 200,
+      headers: {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store',
+      },
+    });
+  }
+
   const allowlist = [...unauthenticatedPaths];
 
   if (REDIRECT_URI) {
@@ -76,16 +89,26 @@ export default async function proxy(request: NextRequest) {
     debug: true,
   });
 
-  const { pathname } = request.nextUrl;
   const isAllowed = isUnauthenticatedPath(pathname, allowlist);
 
+  const toRuntimeResponse = (response: Response) =>
+    new Response(response.body, response);
+
+  const respond = (redirect?: string) => {
+    const response = handleAuthkitHeaders(
+      request,
+      headers,
+      redirect ? { redirect } : undefined,
+    );
+
+    return toRuntimeResponse(response);
+  };
+
   if (!isAllowed && !session.user && authorizationUrl) {
-    return handleAuthkitHeaders(request, headers, {
-      redirect: authorizationUrl,
-    });
+    return respond(authorizationUrl);
   }
 
-  return handleAuthkitHeaders(request, headers);
+  return respond();
 }
 
 export const config = {

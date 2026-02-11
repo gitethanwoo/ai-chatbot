@@ -528,6 +528,41 @@ const authHandler = withMcpAuth(handler, verifyToken, {
   resourceMetadataPath: '/.well-known/oauth-protected-resource/mcp',
 });
 
-const handleRequest = (req: Request) => authHandler(req);
+const SUPPORTED_TRANSPORTS = new Set(['mcp', 'sse', 'message']);
 
-export { handleRequest as GET, handleRequest as POST };
+type RouteContext = {
+  params: Promise<{
+    transport: string;
+  }>;
+};
+
+const isSupportedTransport = (transport: string) =>
+  SUPPORTED_TRANSPORTS.has(transport);
+
+const notFoundResponse = () =>
+  new Response('Not Found', {
+    status: 404,
+    headers: {
+      'content-type': 'text/plain; charset=utf-8',
+    },
+  });
+
+export async function GET(request: Request, context: RouteContext) {
+  const { transport } = await context.params;
+
+  if (!isSupportedTransport(transport)) {
+    return notFoundResponse();
+  }
+
+  return authHandler(request);
+}
+
+export async function POST(request: Request, context: RouteContext) {
+  const { transport } = await context.params;
+
+  if (!isSupportedTransport(transport)) {
+    return notFoundResponse();
+  }
+
+  return authHandler(request);
+}
