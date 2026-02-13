@@ -461,6 +461,14 @@ function PureMultimodalInput({
               selectedModelId={selectedModelId}
               pdfUploadsDisabled={pdfUploadsDisabled}
             />
+            {pdfUploadsDisabled && (
+              <span
+                className="text-xs text-muted-foreground hidden sm:inline-block max-w-[60%] truncate"
+                aria-live="polite"
+              >
+                Grok 4 (Fast) does not support PDF uploads. Switch models or upload an image.
+              </span>
+            )}
             <ReasoningSelectorCompact
               reasoningEffort={reasoningEffort}
               setReasoningEffort={setReasoningEffort}
