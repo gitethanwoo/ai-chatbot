@@ -2,6 +2,9 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@workos-inc/authkit-nextjs';
 import { createClient } from '@supabase/supabase-js';
 
+const toNativeResponse = (response: Response) =>
+  new Response(response.body, response);
+
 export async function GET(request: NextRequest) {
   console.log('transcripts route request', {
     url: request.url,
@@ -57,7 +60,7 @@ export async function GET(request: NextRequest) {
       const payload = { error: 'Unauthorized' };
       const response = NextResponse.json(payload, { status: 401 });
       logResponse('unauthorized', response, payload);
-      return response;
+      return toNativeResponse(response);
     }
 
     // Parse pagination parameters
@@ -73,7 +76,7 @@ export async function GET(request: NextRequest) {
       const payload = { error: 'Database configuration missing' };
       const response = NextResponse.json(payload, { status: 500 });
       logResponse('missing-db-config', response, payload);
-      return response;
+      return toNativeResponse(response);
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -119,7 +122,7 @@ export async function GET(request: NextRequest) {
       const payload = { error: 'Failed to fetch transcripts' };
       const response = NextResponse.json(payload, { status: 500 });
       logResponse('query-error', response, payload);
-      return response;
+      return toNativeResponse(response);
     }
 
     const payload = {
@@ -135,13 +138,13 @@ export async function GET(request: NextRequest) {
     };
     const response = NextResponse.json(payload);
     logResponse('success', response, payload);
-    return response;
+    return toNativeResponse(response);
   } catch (error) {
     console.error('API error:', error);
     console.log('transcripts route session raw on error', session);
     const payload = { error: 'Internal server error' };
     const response = NextResponse.json(payload, { status: 500 });
     logResponse('catch', response, payload);
-    return response;
+    return toNativeResponse(response);
   }
 }

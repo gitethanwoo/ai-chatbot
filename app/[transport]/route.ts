@@ -547,6 +547,9 @@ const notFoundResponse = () =>
     },
   });
 
+const toNativeResponse = (response: Response) =>
+  new Response(response.body, response);
+
 export async function GET(request: Request, context: RouteContext) {
   const { transport } = await context.params;
 
@@ -554,7 +557,8 @@ export async function GET(request: Request, context: RouteContext) {
     return notFoundResponse();
   }
 
-  return authHandler(request);
+  const response = await authHandler(request);
+  return toNativeResponse(response);
 }
 
 export async function POST(request: Request, context: RouteContext) {
@@ -564,5 +568,6 @@ export async function POST(request: Request, context: RouteContext) {
     return notFoundResponse();
   }
 
-  return authHandler(request);
+  const response = await authHandler(request);
+  return toNativeResponse(response);
 }

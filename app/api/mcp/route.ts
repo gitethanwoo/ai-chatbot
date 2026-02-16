@@ -72,4 +72,15 @@ const authHandler = withMcpAuth(handler, verifyToken, {
   resourceMetadataPath: '/.well-known/oauth-protected-resource',
 });
 
-export { authHandler as GET, authHandler as POST };
+const toNativeResponse = (response: Response) =>
+  new Response(response.body, response);
+
+export async function GET(request: Request) {
+  const response = await authHandler(request);
+  return toNativeResponse(response);
+}
+
+export async function POST(request: Request) {
+  const response = await authHandler(request);
+  return toNativeResponse(response);
+}
