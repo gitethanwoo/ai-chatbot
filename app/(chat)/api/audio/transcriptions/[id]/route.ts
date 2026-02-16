@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import { withAuth } from '@workos-inc/authkit-nextjs';
+import { toNativeResponse } from '@/lib/server/next-response';
 import {
   getAudioTranscriptionById,
   getDatabaseUserFromWorkOS,
   updateAudioTranscriptionSpeakerNames,
 } from '@/lib/db/queries';
 
-export async function GET(
+async function handleGET(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -40,7 +41,7 @@ export async function GET(
   return NextResponse.json(record);
 }
 
-export async function PATCH(
+async function handlePATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -77,4 +78,14 @@ export async function PATCH(
   }
 
   return NextResponse.json(updated);
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
+}
+
+export async function PATCH(...args: Parameters<typeof handlePATCH>) {
+  const response = await handlePATCH(...args);
+  return toNativeResponse(response);
 }

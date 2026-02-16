@@ -1,8 +1,9 @@
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 import { NextResponse } from 'next/server';
 import { withAuth } from '@workos-inc/authkit-nextjs';
+import { toNativeResponse } from '@/lib/server/next-response';
 
-export async function POST(request: Request): Promise<NextResponse> {
+async function handlePOST(request: Request): Promise<NextResponse> {
   const session = await withAuth();
 
   if (!session?.user) {
@@ -41,4 +42,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   });
 
   return NextResponse.json(jsonResponse);
+}
+
+export async function POST(...args: Parameters<typeof handlePOST>) {
+  const response = await handlePOST(...args);
+  return toNativeResponse(response);
 }

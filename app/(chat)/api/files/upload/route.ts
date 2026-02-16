@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod/v4';
 
 import { withAuth } from '@workos-inc/authkit-nextjs';
+import { toNativeResponse } from '@/lib/server/next-response';
 
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_FILE_TYPES = [
@@ -24,7 +25,7 @@ const FileSchema = z.object({
     }),
 });
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await withAuth();
 
   if (!session) {
@@ -73,4 +74,9 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(...args: Parameters<typeof handlePOST>) {
+  const response = await handlePOST(...args);
+  return toNativeResponse(response);
 }

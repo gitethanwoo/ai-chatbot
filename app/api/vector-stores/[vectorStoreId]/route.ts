@@ -7,13 +7,14 @@ import { eq, and } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
 import { agent as agentTable } from '@/lib/db/schema';
 import { getDatabaseUserFromWorkOS } from '@/lib/db/queries';
+import { toNativeResponse } from '@/lib/server/next-response';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 const OPENAI_BETA_HEADER = { 'OpenAI-Beta': 'assistants=v2' } as const;
 
-export async function GET(
+async function handleGET(
   _request: Request,
   { params }: { params: Promise<{ vectorStoreId: string }> },
 ) {
@@ -157,4 +158,9 @@ export async function GET(
       { status: 500 },
     );
   }
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
 }

@@ -7,9 +7,9 @@ import {
   voteMessage,
 } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
-import { toNextResponse } from '@/lib/server/next-response';
+import { toNextResponse, toNativeResponse } from '@/lib/server/next-response';
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const { searchParams } = new URL(request.url);
   const chatId = searchParams.get('chatId');
 
@@ -59,7 +59,7 @@ export async function GET(request: Request) {
   return NextResponse.json(votes, { status: 200 });
 }
 
-export async function PATCH(request: Request) {
+async function handlePATCH(request: Request) {
   const {
     chatId,
     messageId,
@@ -115,4 +115,14 @@ export async function PATCH(request: Request) {
   });
 
   return new NextResponse('Message voted', { status: 200 });
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
+}
+
+export async function PATCH(...args: Parameters<typeof handlePATCH>) {
+  const response = await handlePATCH(...args);
+  return toNativeResponse(response);
 }

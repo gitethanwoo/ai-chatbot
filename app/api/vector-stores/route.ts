@@ -7,6 +7,7 @@ import * as schema from '@/lib/db/schema';
 import { agent as agentTable } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import OpenAI from 'openai';
+import { toNativeResponse } from '@/lib/server/next-response';
 
 const OPENAI_BETA_HEADER = { 'OpenAI-Beta': 'assistants=v2' } as const;
 
@@ -26,7 +27,7 @@ function pickFiles(formData: FormData) {
   return { files, vectorStoreId, agentSlug };
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const apiKey =
     process.env.OPENAI_API_KEY ?? process.env.AI_GATEWAY_API_KEY ?? '';
 
@@ -230,4 +231,9 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(...args: Parameters<typeof handlePOST>) {
+  const response = await handlePOST(...args);
+  return toNativeResponse(response);
 }

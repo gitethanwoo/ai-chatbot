@@ -7,6 +7,7 @@ import { agent } from '@/lib/db/schema';
 import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
+import { toNativeResponse } from '@/lib/server/next-response';
 
 // biome-ignore lint: Forbidden non-null assertion.
 const client = postgres(process.env.POSTGRES_URL!);
@@ -32,7 +33,7 @@ const createAgentSchema = z.object({
     .optional(),
 });
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   try {
     // Auth is enforced by middleware; still call to ensure session resolution
     await withAuth();
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     const { user } = await withAuth({ ensureSignedIn: true });
 
@@ -155,4 +156,14 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
+}
+
+export async function POST(...args: Parameters<typeof handlePOST>) {
+  const response = await handlePOST(...args);
+  return toNativeResponse(response);
 }

@@ -8,13 +8,13 @@ import {
 } from '@/lib/db/queries';
 import type { Chat } from '@/lib/db/schema';
 import { ChatSDKError } from '@/lib/errors';
-import { toNextResponse } from '@/lib/server/next-response';
+import { toNextResponse, toNativeResponse } from '@/lib/server/next-response';
 import type { ChatMessage } from '@/lib/types';
 import { createUIMessageStream, JsonToSseTransformStream } from 'ai';
 import { getStreamContext } from '../../route';
 import { differenceInSeconds } from 'date-fns';
 
-export async function GET(
+async function handleGET(
   _: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -128,4 +128,9 @@ export async function GET(
   }
 
   return new NextResponse(stream, { status: 200 });
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
 }

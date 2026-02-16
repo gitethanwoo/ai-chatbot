@@ -2,9 +2,9 @@ import { withAuth } from '@workos-inc/authkit-nextjs';
 import { NextResponse } from 'next/server';
 import { getDatabaseUserFromWorkOS, getChatWithAgent } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
-import { toNextResponse } from '@/lib/server/next-response';
+import { toNextResponse, toNativeResponse } from '@/lib/server/next-response';
 
-export async function GET(
+async function handleGET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -49,4 +49,9 @@ export async function GET(
     console.error('Unhandled error in chat agent API:', error);
     return toNextResponse(new ChatSDKError('offline:chat').toResponse());
   }
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
 }

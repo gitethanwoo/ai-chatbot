@@ -3,10 +3,11 @@ import { withAuth } from '@workos-inc/authkit-nextjs';
 import { start } from 'workflow/api';
 import { transcribeAudioWorkflow } from '@/workflows/audio-transcription';
 import { getDatabaseUserFromWorkOS } from '@/lib/db/queries';
+import { toNativeResponse } from '@/lib/server/next-response';
 
 export const maxDuration = 300;
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await withAuth();
 
   if (!session?.user) {
@@ -38,4 +39,9 @@ export async function POST(request: Request) {
   const result = await run.returnValue;
 
   return NextResponse.json(result);
+}
+
+export async function POST(...args: Parameters<typeof handlePOST>) {
+  const response = await handlePOST(...args);
+  return toNativeResponse(response);
 }

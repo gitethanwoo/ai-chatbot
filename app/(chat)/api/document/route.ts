@@ -8,9 +8,9 @@ import {
   saveDocument,
 } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
-import { toNextResponse } from '@/lib/server/next-response';
+import { toNextResponse, toNativeResponse } from '@/lib/server/next-response';
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
 
@@ -67,7 +67,7 @@ export async function GET(request: Request) {
   return NextResponse.json(documents, { status: 200 });
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
 
@@ -135,7 +135,7 @@ export async function POST(request: Request) {
   return NextResponse.json(document, { status: 200 });
 }
 
-export async function DELETE(request: Request) {
+async function handleDELETE(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   const timestamp = searchParams.get('timestamp');
@@ -199,4 +199,19 @@ export async function DELETE(request: Request) {
   });
 
   return NextResponse.json(documentsDeleted, { status: 200 });
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
+}
+
+export async function POST(...args: Parameters<typeof handlePOST>) {
+  const response = await handlePOST(...args);
+  return toNativeResponse(response);
+}
+
+export async function DELETE(...args: Parameters<typeof handleDELETE>) {
+  const response = await handleDELETE(...args);
+  return toNativeResponse(response);
 }

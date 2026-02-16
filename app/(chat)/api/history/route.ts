@@ -2,8 +2,9 @@ import { withAuth } from '@workos-inc/authkit-nextjs';
 import type { NextRequest } from 'next/server';
 import { getChatsByUserId, getDatabaseUserFromWorkOS } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
+import { toNativeResponse } from '@/lib/server/next-response';
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   console.log('history route request', {
     url: request.url,
     method: request.method,
@@ -72,4 +73,9 @@ export async function GET(request: NextRequest) {
       'Database error',
     ).toResponse();
   }
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
 }

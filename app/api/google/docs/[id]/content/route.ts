@@ -2,8 +2,9 @@ import { withAuth } from '@workos-inc/authkit-nextjs';
 import { getDatabaseUserFromWorkOS } from '@/lib/db/queries';
 import { getGoogleDriveClient } from '@/lib/google/client';
 import { NextResponse } from 'next/server';
+import { toNativeResponse } from '@/lib/server/next-response';
 
-export async function GET(
+async function handleGET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -91,4 +92,9 @@ export async function GET(
       { status: 500 },
     );
   }
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
 }

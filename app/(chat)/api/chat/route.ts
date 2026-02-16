@@ -57,7 +57,7 @@ import {
 } from 'resumable-stream';
 import { after, NextResponse } from 'next/server';
 import { ChatSDKError } from '@/lib/errors';
-import { toNextResponse } from '@/lib/server/next-response';
+import { toNextResponse, toNativeResponse } from '@/lib/server/next-response';
 import type { ChatMessage } from '@/lib/types';
 import type { VisibilityType } from '@/components/visibility-selector';
 import { openai, type OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
@@ -87,7 +87,7 @@ export function getStreamContext() {
   return globalStreamContext;
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   let requestBody: PostRequestBody;
 
   try {
@@ -555,7 +555,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function handleDELETE(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
 
@@ -594,4 +594,14 @@ export async function DELETE(request: Request) {
   const deletedChat = await deleteChatById({ id });
 
   return NextResponse.json(deletedChat, { status: 200 });
+}
+
+export async function POST(...args: Parameters<typeof handlePOST>) {
+  const response = await handlePOST(...args);
+  return toNativeResponse(response);
+}
+
+export async function DELETE(...args: Parameters<typeof handleDELETE>) {
+  const response = await handleDELETE(...args);
+  return toNativeResponse(response);
 }

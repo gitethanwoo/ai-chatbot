@@ -1,10 +1,11 @@
 import { withAuth } from '@workos-inc/authkit-nextjs';
+import { toNativeResponse } from '@/lib/server/next-response';
 import {
   getDatabaseUserFromWorkOS,
   listAudioTranscriptionsByUserId,
 } from '@/lib/db/queries';
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   console.log('audio transcriptions route request', {
     url: request.url,
     method: request.method,
@@ -49,4 +50,9 @@ export async function GET(request: Request) {
   });
 
   return Response.json(rows);
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
 }

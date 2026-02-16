@@ -5,9 +5,9 @@ import {
   getSuggestionsByDocumentId,
 } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
-import { toNextResponse } from '@/lib/server/next-response';
+import { toNextResponse, toNativeResponse } from '@/lib/server/next-response';
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const { searchParams } = new URL(request.url);
   const documentId = searchParams.get('documentId');
 
@@ -60,4 +60,9 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json(suggestions, { status: 200 });
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
 }

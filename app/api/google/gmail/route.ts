@@ -6,8 +6,9 @@ import {
 } from '@/lib/google/client';
 import { NextResponse } from 'next/server';
 import type { gmail_v1 } from 'googleapis';
+import { toNativeResponse } from '@/lib/server/next-response';
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   try {
     const { user } = await withAuth();
 
@@ -245,4 +246,9 @@ export async function GET(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
 }

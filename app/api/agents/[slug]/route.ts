@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm';
 import { agent, chat } from '@/lib/db/schema';
 import * as schema from '@/lib/db/schema';
 import { z } from 'zod';
+import { toNativeResponse } from '@/lib/server/next-response';
 
 const updateAgentSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -15,7 +16,7 @@ const updateAgentSchema = z.object({
   isPublic: z.boolean(),
 });
 
-export async function GET(
+async function handleGET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> },
 ) {
@@ -67,7 +68,7 @@ export async function GET(
   }
 }
 
-export async function PATCH(
+async function handlePATCH(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> },
 ) {
@@ -147,7 +148,7 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
+async function handleDELETE(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> },
 ) {
@@ -210,4 +211,19 @@ export async function DELETE(
       { status: 500 },
     );
   }
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
+}
+
+export async function PATCH(...args: Parameters<typeof handlePATCH>) {
+  const response = await handlePATCH(...args);
+  return toNativeResponse(response);
+}
+
+export async function DELETE(...args: Parameters<typeof handleDELETE>) {
+  const response = await handleDELETE(...args);
+  return toNativeResponse(response);
 }

@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@workos-inc/authkit-nextjs';
 import { z } from 'zod/v4';
+import { toNativeResponse } from '@/lib/server/next-response';
 import {
   getDatabaseUserFromWorkOS,
   getSavedAgentsByUserId,
@@ -12,7 +13,7 @@ const postBodySchema = z.object({
   agentId: z.string().uuid(),
 });
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   try {
     const session = await withAuth();
     if (!session?.user) {
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     const session = await withAuth();
     if (!session?.user) {
@@ -88,7 +89,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function DELETE(request: NextRequest) {
+async function handleDELETE(request: NextRequest) {
   try {
     const session = await withAuth();
     if (!session?.user) {
@@ -122,4 +123,19 @@ export async function DELETE(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const response = await handleGET(...args);
+  return toNativeResponse(response);
+}
+
+export async function POST(...args: Parameters<typeof handlePOST>) {
+  const response = await handlePOST(...args);
+  return toNativeResponse(response);
+}
+
+export async function DELETE(...args: Parameters<typeof handleDELETE>) {
+  const response = await handleDELETE(...args);
+  return toNativeResponse(response);
 }
