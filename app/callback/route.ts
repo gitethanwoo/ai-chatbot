@@ -1,4 +1,5 @@
 import { handleAuth } from '@workos-inc/authkit-nextjs';
+import type { NextRequest } from 'next/server';
 import {
   findOrCreateUserFromWorkOS,
   getDatabaseUserFromWorkOS,
@@ -6,7 +7,7 @@ import {
 import { storeGoogleCredentials } from '@/lib/google/client';
 
 // Handle WorkOS AuthKit callback with user synchronization
-export const GET = handleAuth({
+const callbackHandler = handleAuth({
   onSuccess: async ({
     user,
     accessToken,
@@ -94,3 +95,8 @@ export const GET = handleAuth({
     }
   },
 });
+
+export async function GET(request: NextRequest) {
+  const response = await callbackHandler(request);
+  return new Response(response.body, response);
+}
